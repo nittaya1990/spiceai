@@ -14,27 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package registry
+package cmd
 
 import (
-	"os"
-	"strings"
-
-	"github.com/spiceai/spiceai/bin/spice/pkg/context"
+	"github.com/spf13/cobra"
 )
 
-type SpiceRegistry interface {
-	GetPod(ctx *context.RuntimeContext, podPath string) (string, error)
+var connectCmd = &cobra.Command{
+	Use:   "connect",
+	Short: "Adds the Spice.ai Cloud Platform app Spicepod for local use.",
+	Args:  cobra.MinimumNArgs(1),
+	Example: `
+spice connect spiceai/quickstart
+`,
+	Run: getAddOrConnectCmdHandler(true),
 }
 
-func GetRegistry(path string) SpiceRegistry {
-	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "../") || strings.HasPrefix(path, "file://") {
-		return &LocalFileRegistry{}
-	}
-
-	if _, err := os.Stat(path); err == nil {
-		return &LocalFileRegistry{}
-	}
-
-	return &SpiceRackRegistry{}
+func init() {
+	RootCmd.AddCommand(connectCmd)
 }
