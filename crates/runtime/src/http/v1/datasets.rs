@@ -49,16 +49,15 @@ use super::{
 };
 
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams, utoipa::ToSchema))]
 pub struct DatasetFilter {
     /// Filters datasets by source (e.g., `postgres:aidemo_messages`).
     source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema, utoipa::IntoParams))]
 pub struct DatasetQueryParams {
-    /// If true, includes the status of each dataset in the response. Default is false.
     #[serde(default)]
     status: bool,
 
@@ -100,7 +99,7 @@ pub(crate) struct Property {
     pub value: Option<serde_json::Value>, // support any valid JSON type (String, Int, Object, etc)
 }
 
-/// Get a list of datasets.
+/// List Datasets
 ///
 /// This endpoint returns a list of configured datasets. The response can be formatted as **JSON** or **CSV**,
 /// and additional filters can be applied using query parameters.
@@ -223,6 +222,8 @@ pub struct AccelerationRequest {
     pub refresh_sql: Option<String>,
 }
 
+/// Refresh Dataset
+///
 /// Trigger an on-demand refresh for an accelerated dataset.
 ///
 /// This endpoint triggers an on-demand refresh for an accelerated dataset.
@@ -343,6 +344,8 @@ pub(crate) async fn refresh(
     }
 }
 
+/// Update Refresh SQL
+///
 /// Update the refresh SQL for a dataset's acceleration.
 ///
 /// This endpoint allows for updating the `refresh_sql` parameter for a dataset's acceleration at runtime.
@@ -359,7 +362,6 @@ pub(crate) async fn refresh(
     ),
     request_body(
         description = "The updated SQL statement for the dataset's refresh.",
-        required = true,
         content((
             AccelerationRequest = "application/json",
             example = json!({
@@ -446,7 +448,7 @@ pub struct SampleQueryParams {
     pub r#type: Option<SampleTableMethod>,
 }
 
-/// Sample data from a dataset.
+/// Sample Dataset
 ///
 /// This endpoint allows for sampling data from a dataset using different methods.
 /// The type of sampling method can be specified using the `type` query parameter,
@@ -462,7 +464,6 @@ pub struct SampleQueryParams {
     ),
     request_body(
         description = "The request body depends on the type of sampling selected.",
-        required = true,
         content((
             DistinctColumnsParams = "application/json", example = json!({
                 "dataset": "postgres:aidemo_messages",
