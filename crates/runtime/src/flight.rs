@@ -339,8 +339,8 @@ pub async fn start(
         .into_inner();
 
     server
-        .layer(auth_layer)
         .layer(RequestContextLayer::new(app))
+        .layer(auth_layer)
         .add_service(svc)
         .serve(bind_address)
         .await
