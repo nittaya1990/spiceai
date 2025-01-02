@@ -531,7 +531,10 @@ impl Runtime {
                 #[cfg(feature = "models")]
                 {
                     self_clone.load_eval_scorer().await;
-                    if let Err(err) = self_clone.load_eval_tables().await {
+                    let an_eval_exists = app_lock.as_ref().is_some_and(|app| !app.evals.is_empty());
+                    if !an_eval_exists {
+                        tracing::trace!("No eval spice components defined. Therefore not loading eval tables into database.");
+                    } else if let Err(err) = self_clone.load_eval_tables().await {
                         tracing::warn!("Creating internal eval run table: {err}");
                     }
                 }
