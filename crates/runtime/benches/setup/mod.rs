@@ -133,9 +133,19 @@ fn build_app(
                     .as_ref()
                     .is_some_and(|a| a.engine == Some("sqlite".to_string()))
             {
-                crate::bench_object_store::build_app(connector, app_builder, "tpcds_sf0_01")
+                crate::bench_object_store::build_app(
+                    connector,
+                    app_builder,
+                    "tpcds_sf0_01",
+                    acceleration.clone(),
+                )
             } else {
-                crate::bench_object_store::build_app(connector, app_builder, bench_name)
+                crate::bench_object_store::build_app(
+                    connector,
+                    app_builder,
+                    bench_name,
+                    acceleration.clone(),
+                )
             }
         }
         #[cfg(feature = "spark")]

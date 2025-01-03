@@ -26,7 +26,9 @@ limitations under the License.
 // run_id, started_at, finished_at, connector_name, query_name, status, min_duration, max_duration, iterations, commit_sha
 
 use std::panic;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(feature = "postgres")]
 use crate::bench_postgres::get_postgres_params;
@@ -40,8 +42,7 @@ use futures::TryStreamExt;
 use results::BenchmarkResultsBuilder;
 use runtime::request::{Protocol, RequestContext, UserAgent};
 use runtime::{dataupdate::DataUpdate, Runtime};
-use spicepod::component::dataset::acceleration::{self, Acceleration, Mode};
-use spicepod::component::params::Params;
+use spicepod::component::dataset::acceleration::{self, Acceleration, Mode, RefreshMode};
 
 mod results;
 mod setup;
@@ -69,6 +70,34 @@ mod bench_postgres;
 #[cfg(feature = "spark")]
 mod bench_spark;
 
+#[derive(Debug, Default, Clone, Copy)]
+enum AcceleratorRefreshMode {
+    Append,
+    #[default]
+    Full,
+}
+
+impl FromStr for AcceleratorRefreshMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "append" => Ok(AcceleratorRefreshMode::Append),
+            "full" => Ok(AcceleratorRefreshMode::Full),
+            _ => Err(format!("Unsupported accelerator refresh mode: {s}")),
+        }
+    }
+}
+
+impl From<AcceleratorRefreshMode> for acceleration::RefreshMode {
+    fn from(mode: AcceleratorRefreshMode) -> Self {
+        match mode {
+            AcceleratorRefreshMode::Append => acceleration::RefreshMode::Append,
+            AcceleratorRefreshMode::Full => acceleration::RefreshMode::Full,
+        }
+    }
+}
+
 // Define command line arguments for running benchmark test
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -88,6 +117,9 @@ struct BenchArgs {
     /// Set the acceleration mode for accelerator
     #[arg(short, long)]
     mode: Option<String>,
+
+    #[arg(long)]
+    refresh_mode: AcceleratorRefreshMode,
 
     /// Set the benchmark to run: TPCH / TPCDS
     #[arg(short, long, default_value = "tpch")]
@@ -150,21 +182,21 @@ async fn bench_main() -> Result<(), String> {
                 run_connector_bench(connector, upload_results_dataset.as_ref(), args.bench_name.as_ref()).await?;
             }
             let accelerators: Vec<Acceleration> = vec![
-                create_acceleration("arrow", acceleration::Mode::Memory, args.bench_name.as_ref()),
+                create_acceleration("arrow", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Full),
                 #[cfg(feature = "duckdb")]
-                create_acceleration("duckdb", acceleration::Mode::Memory, args.bench_name.as_ref()),
+                create_acceleration("duckdb", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Full),
                 #[cfg(feature = "duckdb")]
-                create_acceleration("duckdb", acceleration::Mode::File, args.bench_name.as_ref()),
+                create_acceleration("duckdb", acceleration::Mode::File, args.bench_name.as_ref(), RefreshMode::Full),
                 #[cfg(feature = "sqlite")]
-                create_acceleration("sqlite", acceleration::Mode::Memory, args.bench_name.as_ref()),
+                create_acceleration("sqlite", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Full),
                 #[cfg(feature = "sqlite")]
-                create_acceleration("sqlite", acceleration::Mode::File, args.bench_name.as_ref()),
+                create_acceleration("sqlite", acceleration::Mode::File, args.bench_name.as_ref(), RefreshMode::Full),
                 #[cfg(feature = "postgres")]
-                create_acceleration("postgres", acceleration::Mode::Memory, args.bench_name.as_ref()),
+                create_acceleration("postgres", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Full),
             ];
             for accelerator in accelerators {
-                run_accelerator_bench(accelerator.clone(), upload_results_dataset.as_ref(), "tpch").await?;
-                run_accelerator_bench(accelerator, upload_results_dataset.as_ref(), "tpcds").await?;
+                run_accelerator_bench("s3", accelerator.clone(), upload_results_dataset.as_ref(), "tpch").await?;
+                run_accelerator_bench("s3", accelerator.clone(), upload_results_dataset.as_ref(), "tpcds").await?;
             }
         },
         (Some(connector), None, None) => {
@@ -179,19 +211,25 @@ async fn bench_main() -> Result<(), String> {
                 _ => return Err(format!("Invalid mode parameter for {accelerator} accelerator")),
             };
 
-            let acceleration = create_acceleration(accelerator, mode, args.bench_name.as_ref());
+            let refresh_mode = RefreshMode::from(args.refresh_mode);
+            let acceleration = create_acceleration(accelerator, mode, args.bench_name.as_ref(), refresh_mode.clone());
 
-            match args.bench_name.as_ref() {
-                "tpch" => {
-                    run_accelerator_bench(acceleration, upload_results_dataset.as_ref(), "tpch").await?;
+            match (refresh_mode, args.bench_name.as_ref()) {
+                (RefreshMode::Append, "tpch") => {
+                    run_accelerator_bench("file", acceleration, upload_results_dataset.as_ref(), "tpch").await?;
                 }
-                "tpcds" => {
-                    run_accelerator_bench(acceleration, upload_results_dataset.as_ref(), "tpcds").await?;
+                (RefreshMode::Full, "tpch") => {
+                    run_accelerator_bench("s3", acceleration, upload_results_dataset.as_ref(), "tpch").await?;
                 }
-                "clickbench" => {
-                    run_accelerator_bench(acceleration, upload_results_dataset.as_ref(), "clickbench").await?;
+                (RefreshMode::Full, "tpcds") => {
+                    run_accelerator_bench("s3", acceleration, upload_results_dataset.as_ref(), "tpcds").await?;
                 }
-                _ => return Err(format!("Invalid mode bench_name parameter {}", args.bench_name)),
+                (RefreshMode::Full, "clickbench") => {
+                    run_accelerator_bench("s3", acceleration, upload_results_dataset.as_ref(), "clickbench").await?;
+                }
+                (RefreshMode::Append, benchmark) => return Err(format!("Append mode benchmark is not implemented for {benchmark}")),
+                (RefreshMode::Changes, benchmark) => return Err(format!("CDC mode benchmark is not implemented for {benchmark}")),
+                (RefreshMode::Full, benchmark) => return Err(format!("Invalid benchmark parameter for accelerator benchmark: {benchmark}")),
             }
         },
         _ => return Err("Invalid command line input: accelerator or mode parameter supplied for connector benchmark".to_string()),
@@ -278,6 +316,7 @@ async fn run_connector_bench(
 }
 
 async fn run_accelerator_bench(
+    connector: &str,
     accelerator: Acceleration,
     upload_results_dataset: Option<&String>,
     bench_name: &str,
@@ -287,18 +326,91 @@ async fn run_accelerator_bench(
     let engine = accelerator.engine.clone();
     let mode = accelerator.mode.clone();
 
-    let (mut benchmark_results, mut rt) =
-        setup::setup_benchmark(upload_results_dataset, "s3", Some(accelerator), bench_name).await?;
+    let (benchmark_results, rt) = match (accelerator.refresh_mode.clone(), connector) {
+        #[cfg(feature = "duckdb")]
+        (Some(RefreshMode::Append), "file") => {
+            let scale_factor = 10.0; // TODO: parameterize this
+            let handle = bench_duckdb::delayed_source_load_to_parquet(
+                bench_name,
+                10,                       // TODO: parameterize this
+                Duration::from_secs(120), // 2 minutes * 10 = loading over 20 minutes + overhead for data generation
+                scale_factor,
+            );
 
-    bench_object_store::run(
-        "s3",
-        &mut rt,
-        &mut benchmark_results,
-        engine,
-        Some(mode),
-        bench_name,
-    )
-    .await?;
+            // tracing doesn't initialize until setup_benchmark, but I don't want to call it until data is ready to avoid missing table errors in spiced log
+            println!("Waiting for delayed source load to start...");
+
+            let mut append_startup_timer: usize = 0;
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                append_startup_timer += 5;
+                if handle.is_finished() {
+                    if let Ok(Err(e)) = handle.await {
+                        return Err(format!("Error in delayed source load: {e}"));
+                    }
+
+                    return Err("Delayed source load failed - exited with no error".to_string());
+                }
+
+                if append_startup_timer >= 120 {
+                    break;
+                }
+            }
+
+            let (mut benchmark_results, mut rt) = setup::setup_benchmark(
+                upload_results_dataset,
+                connector,
+                Some(accelerator.clone()),
+                bench_name,
+            )
+            .await?;
+
+            bench_object_store::file::run_file_append(
+                &mut rt,
+                &mut benchmark_results,
+                bench_name,
+                Some(accelerator),
+            )
+            .await?;
+
+            if let Ok(Err(e)) = handle.await {
+                return Err(format!("Error in delayed source load: {e}"));
+            }
+
+            (benchmark_results, rt)
+        }
+        (Some(RefreshMode::Append), _) => {
+            return Err(format!(
+                "Append mode benchmark is not implemented for connector source {connector}"
+            ));
+        }
+        (None, "s3" | "abfs") => {
+            let (mut benchmark_results, mut rt) = setup::setup_benchmark(
+                upload_results_dataset,
+                connector,
+                Some(accelerator.clone()),
+                bench_name,
+            )
+            .await?;
+
+            bench_object_store::run(
+                connector,
+                &mut rt,
+                &mut benchmark_results,
+                engine,
+                Some(mode),
+                bench_name,
+            )
+            .await?;
+
+            (benchmark_results, rt)
+        }
+        _ => {
+            return Err(format!(
+                "Connector {connector} is not supported for accelerator benchmark"
+            ));
+        }
+    };
 
     let data_update: DataUpdate = benchmark_results.into();
 
@@ -314,18 +426,37 @@ async fn run_accelerator_bench(
     Ok(())
 }
 
-fn create_acceleration(engine: &str, mode: acceleration::Mode, bench_name: &str) -> Acceleration {
-    let params: Option<Params> = match engine {
+fn create_acceleration(
+    engine: &str,
+    mode: acceleration::Mode,
+    bench_name: &str,
+    append: acceleration::RefreshMode,
+) -> Acceleration {
+    match (engine, append) {
         #[cfg(feature = "postgres")]
-        "postgres" => Some(get_postgres_params(true, bench_name)),
-        _ => None,
-    };
-
-    Acceleration {
-        engine: Some(engine.to_string()),
-        mode,
-        params,
-        ..Default::default()
+        ("postgres", RefreshMode::Full) => Acceleration {
+            engine: Some(engine.to_string()),
+            mode,
+            params: Some(get_postgres_params(true, bench_name)),
+            ..Default::default()
+        },
+        ("duckdb", RefreshMode::Append) => Acceleration {
+            engine: Some(engine.to_string()),
+            mode,
+            params: None,
+            refresh_mode: Some(RefreshMode::Append),
+            refresh_check_interval: Some("3m".to_string()),
+            ..Default::default()
+        },
+        (_, RefreshMode::Full) => Acceleration {
+            engine: Some(engine.to_string()),
+            mode,
+            params: None,
+            ..Default::default()
+        },
+        (_, refresh_mode) => {
+            panic!("Refresh mode {refresh_mode:?} is not implemented for {engine}")
+        }
     }
 }
 
@@ -337,7 +468,7 @@ fn get_current_unix_ms() -> i64 {
 }
 
 #[allow(clippy::too_many_lines)]
-async fn run_query_and_record_result(
+pub(crate) async fn run_query_and_record_result(
     rt: &mut Runtime,
     benchmark_results: &mut BenchmarkResultsBuilder,
     connector: &str,
@@ -367,6 +498,11 @@ async fn run_query_and_record_result(
 
         let start_iter_time = get_current_unix_ms();
 
+        tracing::debug!(
+            "Running iteration {} of {} for query `{connector}` `{query_name}`...",
+            idx + 1,
+            benchmark_results.iterations()
+        );
         let res = run_query(rt, connector, query_name, query).await;
         let end_iter_time = get_current_unix_ms();
 
@@ -389,7 +525,14 @@ async fn run_query_and_record_result(
                     let limited_records: Vec<_> = records
                         .iter()
                         .flat_map(|batch: &RecordBatch| {
-                            (0..batch.num_rows()).map(move |i| batch.slice(i, 1))
+                            // We only take up to 10 records anyway, so avoid iterating over large row results
+                            let end = if batch.num_rows() > 10 {
+                                10
+                            } else {
+                                batch.num_rows()
+                            };
+
+                            (0..end).map(move |i| batch.slice(i, 1))
                         })
                         .take(10)
                         .collect();
@@ -416,6 +559,10 @@ async fn run_query_and_record_result(
                         }
                     }
                 }
+
+                tracing::debug!(
+                    "Query `{connector}` `{query_name}` iteration {idx} completed in {iter_duration_ms}ms",
+                );
             }
             Err(e) => {
                 tracing::error!(
@@ -426,6 +573,7 @@ async fn run_query_and_record_result(
             }
         }
     }
+
     let end_time = get_current_unix_ms();
     // Both query failure and snapshot test failure will cause the result to be written as Status::Failed
     benchmark_results.record_result(

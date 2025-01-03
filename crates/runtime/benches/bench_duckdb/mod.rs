@@ -20,6 +20,10 @@ use runtime::Runtime;
 use crate::results::BenchmarkResultsBuilder;
 use spicepod::component::{dataset::Dataset, params::Params};
 
+use duckdb::Connection;
+use std::time::Duration;
+use tokio::{task::JoinHandle, time::sleep};
+
 pub(crate) async fn run(
     rt: &mut Runtime,
     benchmark_results: &mut BenchmarkResultsBuilder,
@@ -279,4 +283,106 @@ fn get_tpcds_test_queries() -> Vec<(&'static str, &'static str)> {
         ("tpcds_q98", include_str!("../queries/tpcds/q98.sql")),
         ("tpcds_q99", include_str!("../queries/tpcds/q99.sql")),
     ]
+}
+
+/// Spawn a new thread to load data into the database over a period of time
+/// This is useful for benchmarks that require data changes over time, like append-mode acceleration
+#[allow(clippy::too_many_lines)]
+pub(crate) fn delayed_source_load_to_parquet(
+    bench_name: &str,
+    load_count: usize,
+    load_interval: Duration,
+    scale_factor: f64,
+) -> JoinHandle<Result<(), String>> {
+    let bench_name = bench_name.to_string();
+
+    tokio::spawn(async move {
+        let dest_db_file = format!("./{bench_name}.db");
+        let dest_conn = Connection::open(&dest_db_file).map_err(|e| e.to_string())?;
+
+        for i in 0..load_count {
+            println!("Loading data for {bench_name} benchmark suite, iteration {i}");
+            match bench_name.as_str() {
+                "tpch" => {
+                    let batch_sql = if i == 0 {
+                        format!("
+                        INSTALL tpch;
+                        LOAD tpch;
+                        BEGIN;
+                        CALL dbgen(sf={scale_factor}, children={load_count}, step={i});
+                        ALTER TABLE customer ADD COLUMN c_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE lineitem ADD COLUMN l_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE nation ADD COLUMN n_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE orders ADD COLUMN o_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE part ADD COLUMN p_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE partsupp ADD COLUMN ps_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE region ADD COLUMN r_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE supplier ADD COLUMN s_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        COMMIT;
+                        COPY customer TO 'customer.parquet' (FORMAT 'parquet');
+                        COPY lineitem TO 'lineitem.parquet' (FORMAT 'parquet');
+                        COPY nation TO 'nation.parquet' (FORMAT 'parquet');
+                        COPY orders TO 'orders.parquet' (FORMAT 'parquet');
+                        COPY part TO 'part.parquet' (FORMAT 'parquet');
+                        COPY partsupp TO 'partsupp.parquet' (FORMAT 'parquet');
+                        COPY region TO 'region.parquet' (FORMAT 'parquet');
+                        COPY supplier TO 'supplier.parquet' (FORMAT 'parquet');
+                        ")
+                    } else {
+                        // nation and region get excluded from subsequent loads
+                        format!(
+                            "
+                        INSTALL tpch;
+                        LOAD tpch;
+                        BEGIN;
+                        CALL dbgen(sf={scale_factor}, suffix='_new', children={load_count}, step={i});
+                        ALTER TABLE customer_new ADD COLUMN c_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE lineitem_new ADD COLUMN l_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE nation_new ADD COLUMN n_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE orders_new ADD COLUMN o_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE part_new ADD COLUMN p_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE partsupp_new ADD COLUMN ps_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE region_new ADD COLUMN r_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE supplier_new ADD COLUMN s_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                        INSERT INTO customer SELECT * FROM customer_new;
+                        INSERT INTO lineitem SELECT * FROM lineitem_new;
+                        INSERT INTO orders SELECT * FROM orders_new;
+                        INSERT INTO part SELECT * FROM part_new;
+                        INSERT INTO partsupp SELECT * FROM partsupp_new;
+                        INSERT INTO supplier SELECT * FROM supplier_new;
+                        DROP TABLE customer_new;
+                        DROP TABLE lineitem_new;
+                        DROP TABLE nation_new;
+                        DROP TABLE orders_new;
+                        DROP TABLE part_new;
+                        DROP TABLE partsupp_new;
+                        DROP TABLE region_new;
+                        DROP TABLE supplier_new;
+                        COMMIT;
+                        COPY customer TO 'customer.parquet' (FORMAT 'parquet');
+                        COPY lineitem TO 'lineitem.parquet' (FORMAT 'parquet');
+                        COPY nation TO 'nation.parquet' (FORMAT 'parquet');
+                        COPY orders TO 'orders.parquet' (FORMAT 'parquet');
+                        COPY part TO 'part.parquet' (FORMAT 'parquet');
+                        COPY partsupp TO 'partsupp.parquet' (FORMAT 'parquet');
+                        COPY region TO 'region.parquet' (FORMAT 'parquet');
+                        COPY supplier TO 'supplier.parquet' (FORMAT 'parquet');
+                        "
+                        )
+                    };
+
+                    dest_conn
+                        .execute_batch(&batch_sql)
+                        .map_err(|e| e.to_string())?;
+                }
+                _ => {
+                    return Err("Only tpch benchmark suites are supported".to_string());
+                }
+            }
+
+            sleep(load_interval).await;
+        }
+
+        Ok::<(), String>(())
+    })
 }
