@@ -25,6 +25,7 @@ limitations under the License.
 // schema
 // run_id, started_at, finished_at, connector_name, query_name, status, min_duration, max_duration, iterations, commit_sha
 
+use std::fmt::{Display, Formatter};
 use std::panic;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -89,6 +90,15 @@ impl FromStr for AcceleratorRefreshMode {
     }
 }
 
+impl Display for AcceleratorRefreshMode {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            AcceleratorRefreshMode::Append => write!(f, "append"),
+            AcceleratorRefreshMode::Full => write!(f, "full"),
+        }
+    }
+}
+
 impl From<AcceleratorRefreshMode> for acceleration::RefreshMode {
     fn from(mode: AcceleratorRefreshMode) -> Self {
         match mode {
@@ -118,7 +128,7 @@ struct BenchArgs {
     #[arg(short, long)]
     mode: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, default_value_t=AcceleratorRefreshMode::Full)]
     refresh_mode: AcceleratorRefreshMode,
 
     /// Set the benchmark to run: TPCH / TPCDS
@@ -183,10 +193,15 @@ async fn bench_main() -> Result<(), String> {
             }
             let accelerators: Vec<Acceleration> = vec![
                 create_acceleration("arrow", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Full),
+                create_acceleration("arrow", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Append),
                 #[cfg(feature = "duckdb")]
                 create_acceleration("duckdb", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Full),
                 #[cfg(feature = "duckdb")]
                 create_acceleration("duckdb", acceleration::Mode::File, args.bench_name.as_ref(), RefreshMode::Full),
+                #[cfg(feature = "duckdb")]
+                create_acceleration("duckdb", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Append),
+                #[cfg(feature = "duckdb")]
+                create_acceleration("duckdb", acceleration::Mode::File, args.bench_name.as_ref(), RefreshMode::Append),
                 #[cfg(feature = "sqlite")]
                 create_acceleration("sqlite", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Full),
                 #[cfg(feature = "sqlite")]
@@ -195,8 +210,12 @@ async fn bench_main() -> Result<(), String> {
                 create_acceleration("postgres", acceleration::Mode::Memory, args.bench_name.as_ref(), RefreshMode::Full),
             ];
             for accelerator in accelerators {
-                run_accelerator_bench("s3", accelerator.clone(), upload_results_dataset.as_ref(), "tpch").await?;
-                run_accelerator_bench("s3", accelerator.clone(), upload_results_dataset.as_ref(), "tpcds").await?;
+                if accelerator.refresh_mode == Some(RefreshMode::Append) {
+                    run_accelerator_bench("file", accelerator.clone(), upload_results_dataset.as_ref(), "tpch").await?;
+                } else {
+                    run_accelerator_bench("s3", accelerator.clone(), upload_results_dataset.as_ref(), "tpch").await?;
+                    run_accelerator_bench("s3", accelerator.clone(), upload_results_dataset.as_ref(), "tpds").await?;
+                }
             }
         },
         (Some(connector), None, None) => {
@@ -335,7 +354,7 @@ async fn run_accelerator_bench(
                 10,                       // TODO: parameterize this
                 Duration::from_secs(120), // 2 minutes * 10 = loading over 20 minutes + overhead for data generation
                 scale_factor,
-            );
+            )?;
 
             // tracing doesn't initialize until setup_benchmark, but I don't want to call it until data is ready to avoid missing table errors in spiced log
             println!("Waiting for delayed source load to start...");
@@ -440,7 +459,7 @@ fn create_acceleration(
             params: Some(get_postgres_params(true, bench_name)),
             ..Default::default()
         },
-        ("duckdb", RefreshMode::Append) => Acceleration {
+        ("duckdb" | "arrow", RefreshMode::Append) => Acceleration {
             engine: Some(engine.to_string()),
             mode,
             params: None,
