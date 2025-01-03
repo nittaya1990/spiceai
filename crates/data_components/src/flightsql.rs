@@ -21,13 +21,16 @@ use arrow::{
 use async_stream::stream;
 use async_trait::async_trait;
 use datafusion_table_providers::sql::sql_provider_datafusion::expr;
-use flight_client::tls::new_tls_flight_channel;
+use flight_client::{
+    tls::new_tls_flight_channel, MAX_DECODING_MESSAGE_SIZE, MAX_ENCODING_MESSAGE_SIZE,
+};
 use futures::{Stream, StreamExt, TryStreamExt};
 use snafu::prelude::*;
 use std::{any::Any, fmt, sync::Arc, vec};
 
 use arrow_flight::{
     error::FlightError,
+    flight_service_client::FlightServiceClient,
     sql::{client::FlightSqlServiceClient, CommandGetTables},
     FlightEndpoint, IpcMessage,
 };
@@ -189,10 +192,15 @@ impl FlightSQLTable {
             .connect()
             .await
             .context(UnableToConnectToServerSnafu)?;
+
+        let flight_client = FlightServiceClient::new(channel)
+            .max_encoding_message_size(MAX_ENCODING_MESSAGE_SIZE)
+            .max_decoding_message_size(MAX_DECODING_MESSAGE_SIZE);
+
         Self::create(
             "flightsql",
             s,
-            FlightSqlServiceClient::new(channel),
+            FlightSqlServiceClient::new_from_inner(flight_client),
             table_reference.into(),
         )
         .await
