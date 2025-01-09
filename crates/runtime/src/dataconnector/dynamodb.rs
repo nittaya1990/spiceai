@@ -65,6 +65,10 @@ const PARAMETERS: &[ParameterSpec] = &[
 ];
 
 impl DataConnectorFactory for DynamoDBFactory {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn create(
         &self,
         params: ConnectorParams,
