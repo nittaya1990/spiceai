@@ -19,7 +19,6 @@ use crate::commands::TestArgs;
 use std::time::Duration;
 use test_framework::{
     anyhow,
-    metrics::MetricCollector,
     queries::{QueryOverrides, QuerySet},
     spiced::SpicedInstance,
     spicetest::{EndCondition, SpiceTest},
@@ -52,38 +51,16 @@ pub(crate) async fn run(args: &TestArgs) -> anyhow::Result<()> {
         .await?;
 
     // baseline run
-    println!("Running baseline test");
-    let baseline_test = SpiceTest::new(app.name.clone(), spiced_instance)
+    println!("Running benchmark test");
+    let benchmark_test = SpiceTest::new(app.name.clone(), spiced_instance)
         .with_query_set(queries.clone())
-        .with_parallel_count(1)
-        .with_end_condition(EndCondition::QuerySetCompleted(6))
+        .with_end_condition(EndCondition::QuerySetCompleted(5))
         .start()
         .await?;
 
-    let test = baseline_test.wait().await?;
-    let spiced_instance = test.end();
-
-    // throughput test
-    println!("Running throughput test");
-    let throughput_test = SpiceTest::new(app.name.clone(), spiced_instance)
-        .with_query_set(queries.clone())
-        .with_parallel_count(args.concurrency.unwrap_or(8))
-        .with_end_condition(EndCondition::QuerySetCompleted(2))
-        .start()
-        .await?;
-
-    let test = throughput_test.wait().await?;
-    let throughput_metric = test.get_throughput_metric(args.scale_factor.unwrap_or(1.0))?;
-    let metrics = test.collect()?;
+    let test = benchmark_test.wait().await?;
     let mut spiced_instance = test.end();
 
-    metrics.show()?;
-
     spiced_instance.stop()?;
-
-    println!(
-        "Throughput test completed with throughput: {} Queries per hour * Scale Factor",
-        throughput_metric.round()
-    );
     Ok(())
 }
