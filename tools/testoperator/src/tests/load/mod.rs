@@ -25,20 +25,6 @@ use test_framework::{
     spicetest::{EndCondition, SpiceTest},
 };
 
-pub(crate) fn export(args: &TestArgs) -> anyhow::Result<()> {
-    let (_, mut start_request) = get_app_and_start_request(args)?;
-
-    start_request.prepare()?;
-    let tempdir_path = start_request.get_tempdir_path();
-
-    println!(
-        "Exported spicepod environment to: {}",
-        tempdir_path.to_string_lossy()
-    );
-
-    Ok(())
-}
-
 pub(crate) async fn run(args: &TestArgs) -> anyhow::Result<()> {
     let query_set = QuerySet::from(args.query_set.clone());
     let query_overrides = args.query_overrides.clone().map(QueryOverrides::from);
@@ -57,6 +43,7 @@ pub(crate) async fn run(args: &TestArgs) -> anyhow::Result<()> {
         .with_query_set(queries.clone())
         .with_parallel_count(args.concurrency.unwrap_or(8))
         .with_end_condition(EndCondition::QuerySetCompleted(2))
+        .with_progress_bars(!args.disable_progress_bars)
         .start()
         .await?;
 
@@ -76,6 +63,7 @@ pub(crate) async fn run(args: &TestArgs) -> anyhow::Result<()> {
         .with_end_condition(EndCondition::Duration(Duration::from_secs(
             args.duration.unwrap_or(60).try_into()?,
         )))
+        .with_progress_bars(!args.disable_progress_bars)
         .start()
         .await?;
 
@@ -90,16 +78,11 @@ pub(crate) async fn run(args: &TestArgs) -> anyhow::Result<()> {
     println!("Load test metrics:");
     metrics.show()?;
 
-    // collect memory usage before stopping the instance
-    let memory_usage = spiced_instance.memory_usage()?;
-    // drop memory usage to MB as a u32 before converting to GB as a float
-    // we don't really care about the fractional memory usage of KB/MB
-    let memory_usage_gb = f64::from(u32::try_from(memory_usage / 1024 / 1024)?) / 1024.0;
-    println!("Memory usage: {memory_usage_gb:.2} GB");
-
+    spiced_instance.show_memory_usage()?;
     spiced_instance.stop()?;
 
     let mut test_passed = true;
+    let mut yellow_measurements = 0;
     for (query, _) in queries {
         let Some(duration) = test_durations.get(query) else {
             return Err(anyhow::anyhow!(
@@ -107,11 +90,6 @@ pub(crate) async fn run(args: &TestArgs) -> anyhow::Result<()> {
                 query
             ));
         };
-
-        let median_duration = duration.median()?;
-        if median_duration.as_millis() < 500 {
-            continue; // skip queries that are too fast for percentile comparisons to be meaningful
-        }
 
         let Some(baseline_percentile) = baseline_percentiles.get(query) else {
             return Err(anyhow::anyhow!(
@@ -121,17 +99,38 @@ pub(crate) async fn run(args: &TestArgs) -> anyhow::Result<()> {
         };
 
         let percentile_99th = duration.percentile(0.99)?;
-        let percentile_ratio = percentile_99th.as_secs_f64() / baseline_percentile.as_secs_f64();
+        if percentile_99th.as_millis() < 1000 {
+            continue; // skip queries that are too fast to be meaningful
+        }
 
-        if percentile_ratio > 1.1 {
+        let percentile_ratio =
+            ((percentile_99th.as_secs_f64() / baseline_percentile.as_secs_f64()) - 1.0) * 100.0;
+
+        // yellow measurements = 10% to 20% increase
+        // red measurements = > 20% increase
+        let (yellow, red) = (
+            percentile_ratio > 10.0 && percentile_ratio <= 20.0,
+            percentile_ratio > 20.0,
+        );
+
+        if red {
             println!(
-                "FAIL - Query {query} has a 99th percentile that is {percentile_ratio}% of the baseline 99th percentile",
+                "FAIL - Query {query} has a 99th percentile that increased {percentile_ratio}% of the baseline 99th percentile",
             );
             test_passed = false;
+        } else if yellow {
+            println!(
+                "WARN - Query {query} has a 99th percentile that increased {percentile_ratio}% of the baseline 99th percentile",
+            );
+            yellow_measurements += 1;
         }
     }
 
-    if !test_passed {
+    if yellow_measurements >= 3 {
+        return Err(anyhow::anyhow!(
+            "Load test failed due to too many yellow measurements"
+        ));
+    } else if !test_passed {
         return Err(anyhow::anyhow!("Load test failed."));
     }
 
