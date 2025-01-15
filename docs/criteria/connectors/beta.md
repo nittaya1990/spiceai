@@ -45,7 +45,7 @@ This table defines the required features and/or tests for each connector:
 | -------------------------------- | --------------------- | -------------- | ----------------- | ------------------------ | ------------------- | -------------------------- |
 | Clickhouse                       | ✅ (100)              | ➖             | ☑️                | ➖                       | ✅                  | ➖                         |
 | Databricks (mode: delta_lake)    | ✅ (1)                | ➖             | ☑️                | ➖                       | ✅                  | ➖                         |
-| Databricks (mode: spark_connect) | ✅ (100)              | ➖             | ☑️                | ➖                       | ✅                  | ➖                         |
+| Databricks (mode: spark_connect) | ✅ (100)              | ➖             | ☑️                | ➖                       | ➖                  | ➖                         |
 | Delta Lake                       | ✅ (1)                | ➖             | ☑️                | ➖                       | ✅                  | ➖                         |
 | Dremio                           | ✅ (100)              | ➖             | ☑️                | ➖                       | ✅                  | ➖                         |
 | DuckDB                           | ✅ (100)              | ➖             | ☑️                | ➖                       | ✅                  | ➖                         |
@@ -63,7 +63,7 @@ This table defines the required features and/or tests for each connector:
 | Spice.ai Cloud Platform          | ✅ (100)              | ➖             | ☑️                | ➖                       | ✅                  | ➖                         |
 | S3                               | ✅ (1)                | ➖             | ➖                | ➖                       | ✅                  | ☑️                         |
 | Azure BlobFS                     | ✅ (1)                | ➖             | ➖                | ➖                       | ✅                  | ☑️                         |
-| Spark                            | ✅ (1)                | ➖             | ☑️                | ➖                       | ✅                  | ➖                         |
+| Spark                            | ✅ (1)                | ➖             | ☑️                | ➖                       | ➖                  | ➖                         |
 
 [tpch]: #tpc-h
 [fed]: #federation
