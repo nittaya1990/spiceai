@@ -14,42 +14,31 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#![allow(clippy::missing_errors_doc)]
-
-pub mod flight;
-pub mod metrics;
-pub mod queries;
-pub mod spiced;
-pub mod spicepod_utils;
-pub mod spicetest;
-pub mod utils;
-
 use std::fmt::Display;
 
-pub use anyhow;
-pub use app;
-pub use arrow;
-pub use flight_client;
-pub use futures;
-pub use rustls;
-pub use serde_yaml;
-pub use spicepod;
-
-#[derive(Debug, Clone, Copy)]
-pub enum TestType {
-    Throughput,
-    Load,
-    Benchmark,
-    HTTP,
+pub enum Color {
+    RedBold,
+    Green,
+    Blue,
 }
 
-impl Display for TestType {
+impl Display for Color {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TestType::Throughput => write!(f, "throughput"),
-            TestType::Load => write!(f, "load"),
-            TestType::Benchmark => write!(f, "benchmark"),
-            TestType::HTTP => write!(f, "http"),
-        }
+        let color = match self {
+            Color::RedBold => "\x1b[1;31m",
+            Color::Green => "\x1b[32m",
+            Color::Blue => "\x1b[34m",
+        };
+        write!(f, "{color}")
     }
+}
+
+#[macro_export]
+macro_rules! with_color {
+    ($color:expr, $msg:expr, $($arg:tt)*) => {
+        format!("{}{}\x1b[0m", $color, format!($msg, $($arg)*))
+    };
+    ($color:expr, $msg:expr) => {
+        format!("{}{}\x1b[0m", $color, $msg)
+    };
 }
