@@ -107,6 +107,9 @@ pub enum Error {
     #[snafu(display("The specified model, '{from}', does not support executing the task '{task}'.\nSelect a different model or task, and try again."))]
     UnsupportedTaskForModel { from: String, task: String },
 
+    #[snafu(display("Invalid value for parameter {param}. {message}"))]
+    InvalidParamError { param: String, message: String },
+
     #[snafu(display("Failed to find weights for the model.\nExpected tensors with a file extension of: {extensions}.\nVerify the model is correctly configured, and try again."))]
     ModelMissingWeights { extensions: String },
 
