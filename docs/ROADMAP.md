@@ -1,52 +1,62 @@
-# Spice.ai Roadmap
+# Spice.ai OSS Roadmap
 
-This describes the current Spice.ai roadmap.
+Describes the Spice roadmap, updated based on community and customer feedback.
 
-If you have a feature request or suggestion, please [get in touch](https://github.com/spiceai/spiceai#community)!
+If you have a feature request or suggestion, please [get in touch](https://github.com/spiceai/spiceai#-connect-with-us)!
 
-## Current Limitations
+## Known bugs
 
-Spice.ai is still under early development, so there are several gaps and limitations, including:
+- See [Bugs](https://github.com/spiceai/spiceai/labels/bug). Feel free to [file a new Issue](https://github.com/spiceai/spiceai/issues/new?template=bug_report.md) if you see a bug and let us know on Discord.
 
-- Simulated environment support is very limited
-- Splitting of data (training/testing/etc)
-- Custom environments are not yet supported
-- Custom visualizations are not yet support
-- Environment and reward function code must be written in Python 3
-- Data Sources are polled/fetched only - will change to push/streaming in v0.2
-- Basic local Pod/Flight monitoring through polling - will move to streaming websockets in v0.2
-- Data Connectors do not yet fully honor period, interval and granularity in all cases
-- Single AI backend only (Tensorflow) - expect to support others like PyTorch and Scikit-learn in v0.3
-- Running in Docker is required - a pure metal experience will be supported before v1.0
-- Only macOS and Linux are supported natively. [WSL 2](https://docs.microsoft.com/en-us/windows/wsl/install-win10) is required for Windows.
-- darwin/arm64 is not yet supported (i.e. Apple's M1 Macs). We use M1s ourselves, so we hope to support this very soon 👨‍💻
+## v1.1 (Feb 2025)
 
-### Known bugs
+- Enterprise Search and Retrieval improvements
+  - [#3006](https://github.com/spiceai/spiceai/issues/3006) Search with keyword filtering
+  - [#3016](https://github.com/spiceai/spiceai/issues/3016) Hybrid-Search (DB + Vector)
+  - [#3015](https://github.com/spiceai/spiceai/issues/3015) DataFusion Search
+- [#3318](https://github.com/spiceai/spiceai/issues/3318) FinanceBench in CI
+- Model Providers: OpenAI, HuggingFace, File (Stable)
+- Model Providers: Anthropic, Azure OpenAI, Grok (Beta), DeepSeek (Alpha)
+- Data Accelerators: PostgreSQL (Stable)
 
-- See [Bugs](https://github.com/spiceai/spiceai/labels/bug). Feel free to file a new Issue if you see a bug and let us know on Discord.
+## v1.2 (Mar 2025)
 
-## Tentative v0.2-alpha roadmap
+- AWS Glue Catalog Connector (Alpha)
+- [#3018](https://github.com/spiceai/spiceai/issues/3018) Results caching for embeddings and search
 
-- First-class simulated environment
-- Pluggable environments
-- Additional AI algorithms (E.g. A3C)
-- Search, index, publish and browse the Spice Rack registry
-- Push/Streaming Data Sources/Connectors
-- Local Pod/Flight monitoring (WebSockets)
-- Custom visualization hooks for DataSources
+## v1.3 (Q1 2025)
 
-## Tentative v0.3-alpha roadmap
+- Ingestion
+  - PostgreSQL write
+  - Delta Lake write
+  - Iceberg write
 
-- Multiple AI Engine backends (E.g. PyTorch, Scikit-learn, etc.)
-- Self-host on baremetal or VM
-- CI/CD on GitHub
-- Sidecar injection on Kubernetes
+## v2 (H2 2025)
 
-## v1.0-stable roadmap
+- Policy
+  - Security
+  - Data Access
+- Extensible Middleware
+- AuthN Providers
 
-- A/B testing and flighting
-- Distributed learning
+## Features being considered
 
-## Beyond v1.0
+- Data Connectors
 
-Coming soon!
+  - S3 Tables
+  - ElasticSearch
+  - MotherDuck
+  - BigQuery
+  - Kafka
+  - Google Docs
+
+- APIs
+
+  - GraphQL API
+  - Key/Value API
+    - SlateDB data accelerator
+    - RocksDB data accelerator
+  - PostgreSQL API
+
+- AI
+  - Vision
